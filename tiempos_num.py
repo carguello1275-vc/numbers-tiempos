@@ -1,21 +1,22 @@
+from flask import Flask, jsonify, Response
 import cloudscraper
 import pandas as pd
 from datetime import date
-from flask import Flask, jsonify
-import requests
-
+import io
+import time
 
 app = Flask(__name__)
-
-@app.route("/", methods=["GET"])
-def home():
-    return "API is running"
-
 
 @app.route("/run", methods=["GET", "POST"])
 def run_script_numbers():
     try:
-        scraper = cloudscraper.create_scraper()
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'mobile': False
+            }
+        )
 
         url = "https://integration.jps.go.cr/api/App/nuevostiempos/historical"
 
@@ -25,15 +26,22 @@ def run_script_numbers():
         }
 
         headers = {
-            "Authorization": "sec_num"
+            "Authorization": "sec_num",
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://integration.jps.go.cr/",
+            "Origin": "https://integration.jps.go.cr"
         }
+
+        time.sleep(1)
 
         response = scraper.get(url, params=params, headers=headers)
 
         if response.status_code != 200:
             return jsonify({
                 "error": "API request failed",
-                "status": response.status_code
+                "status": response.status_code,
+                "body": response.text[:200]  # 🔥 helps debugging
             }), 500
 
         data = response.json()
@@ -63,10 +71,10 @@ def run_script_numbers():
         df.to_csv(output, index=False)
 
         return Response(
-        output.getvalue(),
-        mimetype="text/csv",
-        headers={
-        "Content-Disposition": "attachment; filename=Numeros_favorecidos.csv"  
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": "attachment; filename=Numeros_favorecidos.csv"
             }
         )
 
