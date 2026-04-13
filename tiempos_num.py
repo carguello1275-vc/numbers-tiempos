@@ -63,10 +63,10 @@ def run_script_numbers():
         df.to_csv(output, index=False)
 
         return Response(
-            output.getvalue(),
-            mimetype="text/csv",
-            headers={
-                "Content-Disposition": "attachment; filename=Numeros_favorecidos.csv"
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+        "Content-Disposition": "attachment; filename=Numeros_favorecidos.csv"  
             }
         )
 
