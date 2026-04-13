@@ -26,14 +26,13 @@ def run_script_numbers():
         }
 
         headers = {
-            "Authorization": "sec_num",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Referer": "https://integration.jps.go.cr/",
-            "Origin": "https://integration.jps.go.cr"
+            "Origin": "https://integration.jps.go.cr",
+            "Connection": "keep-alive"
         }
-
-        time.sleep(1)
 
         response = scraper.get(url, params=params, headers=headers)
 
@@ -41,7 +40,7 @@ def run_script_numbers():
             return jsonify({
                 "error": "API request failed",
                 "status": response.status_code,
-                "body": response.text[:200]  # 🔥 helps debugging
+                "body": response.text[:200]  # helps debugging
             }), 500
 
         data = response.json()
