@@ -1,3 +1,4 @@
-cloudscraper
-pandas
 flask
+gunicorn
+requests
+pandas
