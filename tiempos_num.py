@@ -16,7 +16,7 @@ def home():
 def run_script_numbers():
 
     def run_script_check():
-    try:
+        try:
         scraper = cloudscraper.create_scraper()
         url = "https://integration.jps.go.cr/api/App/nuevostiempos/historical"
         today = date.today()
@@ -72,7 +72,7 @@ def run_script_numbers():
         })
 
     except Exception as e:
-        return jsonify({
+    return jsonify({
             "error": str(e),
             "type": str(type(e))
         })
