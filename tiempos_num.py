@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import date
 import io
 import time
+import playwright
 
 app = Flask(__name__)
 
