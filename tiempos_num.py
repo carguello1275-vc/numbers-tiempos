@@ -29,9 +29,4 @@ def fetch_data():
         data = response.json()
         browser.close()
         return data
-        
-    except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "type": str(type(e))
-        }), 500
+    
