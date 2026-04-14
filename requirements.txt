@@ -1,5 +1,4 @@
 flask
-gunicorn
-requests
 pandas
-cloudscraper
+playwright
+gunicorn
