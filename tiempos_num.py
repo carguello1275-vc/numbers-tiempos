@@ -1,49 +1,43 @@
-from flask import Flask, Response, jsonify
-from playwright.sync_api import sync_playwright
+from flask import Flask, jsonify
+import cloudscraper
 import pandas as pd
 from datetime import date
-import io
 
 app = Flask(__name__)
 
-
-def fetch_data():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
-        )
-
-        context = browser.new_context()
-        page = context.new_page()
-
-        # Load site first (important for cookies/session)
-        page.goto("https://integration.jps.go.cr/", timeout=60000)
-
-        # Call API using browser session
-        response = page.request.get(
-            "https://integration.jps.go.cr/api/App/nuevostiempos/historical",
-            params={
-                "fechaInicio": "2026-01-01",
-                "fechaFin": date.today().strftime("%Y-%m-%d")
-            }
-        )
-
-        data = response.json()
-        browser.close()
-        return data
-
-
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
     return "API is running"
 
-
 @app.route("/run", methods=["GET"])
-def run_script_numbers():
+def run_script():
     try:
-        data = fetch_data()
+        # Setup
+        scraper = cloudscraper.create_scraper()
+        url = "https://integration.jps.go.cr/api/App/nuevostiempos/historical"
+        today = date.today().strftime("%Y-%m-%d")
 
+        params = {
+            "fechaInicio": "2026-01-01",
+            "fechaFin": today
+        }
+
+        headers = {
+            "Authorization": "sec_num",  # <-- replace with real token
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://integration.jps.go.cr/",
+            "Origin": "https://integration.jps.go.cr",
+            "Connection": "keep-alive"
+        }
+
+        # Request
+        response = scraper.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+        # Transform data
         rows = []
 
         for day in data:
@@ -58,30 +52,33 @@ def run_script_numbers():
                         "numero": draw.get("numero")
                     })
 
+        # DataFrame
         df = pd.DataFrame(rows)
 
         if df.empty:
-            return jsonify({"message": "No data available"}), 200
+            return jsonify({
+                "status": "error",
+                "message": "No data retrieved"
+            }), 400
 
         df["dia"] = pd.to_datetime(df["dia"]).dt.strftime("%d/%m/%Y")
 
-        output = io.StringIO()
-        df.to_csv(output, index=False)
+        # Save CSV (optional)
+        df.to_csv("Numeros_favorecidos.csv", index=False)
 
-        return Response(
-            output.getvalue(),
-            mimetype="text/csv",
-            headers={
-                "Content-Disposition": "attachment; filename=Numeros_favorecidos.csv"
-            }
-        )
+        # Return JSON
+        return jsonify({
+            "status": "success",
+            "rows": len(df),
+            "data": df.to_dict(orient="records")
+        })
 
     except Exception as e:
         return jsonify({
-            "error": str(e),
-            "type": str(type(e))
+            "status": "error",
+            "message": str(e)
         }), 500
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)
