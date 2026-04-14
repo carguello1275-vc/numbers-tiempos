@@ -1,9 +1,6 @@
 services:
   - type: web
-    name: flask-playwright-api
+    name: playwright-api
     env: python
-    buildCommand: |
-      pip install -r requirements.txt
-      playwright install chromium
-    startCommand: gunicorn app:app
-    plan: free
+    buildCommand: "pip install -r requirements.txt && playwright install --with-deps"
+    startCommand: "gunicorn app:app"
