@@ -23,9 +23,6 @@ def run_script():
             "fechaFin": today
         }
 
-        # Use environment variable for token (IMPORTANT)
-        token = os.environ.get("API_TOKEN", "sec_num")
-
         # Start session
         session = requests.Session()
 
@@ -42,7 +39,7 @@ def run_script():
 
         # Step 2: API request headers
         headers = {
-            "Authorization": token,
+            "Authorization": "sec_num",
             "User-Agent": initial_headers["User-Agent"],
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://integration.jps.go.cr/",
