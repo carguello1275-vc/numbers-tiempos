@@ -1,7 +1,9 @@
 from flask import Flask, jsonify
-import cloudscraper
+import requests
 import pandas as pd
 from datetime import date
+import os
+import time
 
 app = Flask(__name__)
 
@@ -13,7 +15,6 @@ def home():
 def run_script():
     try:
         # Setup
-        scraper = cloudscraper.create_scraper()
         url = "https://integration.jps.go.cr/api/App/nuevostiempos/historical"
         today = date.today().strftime("%Y-%m-%d")
 
@@ -22,18 +23,41 @@ def run_script():
             "fechaFin": today
         }
 
-        headers = {
-            "Authorization": "sec_num",  # <-- replace with real token
+        # Use environment variable for token (IMPORTANT)
+        token = os.environ.get("API_TOKEN", "sec_num")
+
+        # Start session
+        session = requests.Session()
+
+        # Step 1: Visit main site (establish cookies/session)
+        initial_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                          "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        session.get("https://integration.jps.go.cr", headers=initial_headers)
+
+        # Optional: small delay to mimic real user behavior
+        time.sleep(2)
+
+        # Step 2: API request headers
+        headers = {
+            "Authorization": token,
+            "User-Agent": initial_headers["User-Agent"],
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://integration.jps.go.cr/",
             "Origin": "https://integration.jps.go.cr",
+            "X-Requested-With": "XMLHttpRequest",
             "Connection": "keep-alive"
         }
 
-        # Request
-        response = scraper.get(url, params=params, headers=headers)
+        # Step 3: Call API using SAME session
+        response = session.get(url, params=params, headers=headers)
+
+        # Debug (optional – remove later)
+        print("Status Code:", response.status_code)
+        print("Cookies:", session.cookies.get_dict())
+
         response.raise_for_status()
         data = response.json()
 
@@ -52,7 +76,6 @@ def run_script():
                         "numero": draw.get("numero")
                     })
 
-        # DataFrame
         df = pd.DataFrame(rows)
 
         if df.empty:
@@ -61,6 +84,7 @@ def run_script():
                 "message": "No data retrieved"
             }), 400
 
+        # Format date
         df["dia"] = pd.to_datetime(df["dia"]).dt.strftime("%d/%m/%Y")
 
         # Save CSV (optional)
@@ -72,6 +96,13 @@ def run_script():
             "rows": len(df),
             "data": df.to_dict(orient="records")
         })
+
+    except requests.exceptions.HTTPError as http_err:
+        return jsonify({
+            "status": "error",
+            "message": f"HTTP error: {str(http_err)}",
+            "status_code": response.status_code if 'response' in locals() else None
+        }), 500
 
     except Exception as e:
         return jsonify({
