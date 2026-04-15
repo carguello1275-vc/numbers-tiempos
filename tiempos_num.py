@@ -33,35 +33,41 @@ def run_script():
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                locale="en-US"
+                locale="en-US",
+                viewport={"width": 1920, "height": 1080}
             )
 
             page = context.new_page()
 
-            # ✅ Prevent hanging
-            page.goto("https://integration.jps.go.cr", timeout=60000)
+            # ⬇️ IMPORTANT: reduce total timeout
+            page.set_default_timeout(15000)
 
-            # Wait until Cloudflare verification page is gone
-            page.wait_for_function("""
-                () => !document.title.includes("Verificación")
-            """, timeout=30000)
+            # Step 1: Load site
+            page.goto("https://integration.jps.go.cr", timeout=30000)
 
-            # 👇 ADD MOUSE MOVEMENT HERE (this is the correct spot)
+            # ⬇️ Wait briefly (NOT long)
+            try:
+                page.wait_for_function(
+                    "() => !document.title.includes('Verificación')",
+                    timeout=8000
+                )
+            except:
+                pass  # don't block execution
+
+            # ⬇️ Simulate minimal human behavior
             page.mouse.move(100, 100)
-            page.mouse.move(300, 300)
+            page.mouse.move(400, 300)
             page.wait_for_timeout(1000)
 
-            # Small extra delay to stabilize session
-            page.wait_for_timeout(3000)
+            # ⬇️ Early exit if still blocked
+            title = page.title()
+            if "Verificación" in title:
+                return jsonify({
+                    "status": "error",
+                    "message": "Blocked by Cloudflare (challenge not passed fast enough)"
+                }), 403
 
-            # ✅ Step 1: Load main site (Cloudflare/session setup)
-            page.goto("https://integration.jps.go.cr", timeout=60000)
-
-            # Wait for Cloudflare / JS
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(5000)
-
-            # ✅ Step 2: Call API safely
+            # Step 2: Call API safely
             data = page.evaluate(f"""
                 async () => {{
                     const res = await fetch("{url}", {{
@@ -86,7 +92,7 @@ def run_script():
                 }}
             """)
 
-        # ✅ Handle Cloudflare / API errors
+        # Handle Cloudflare/API errors
         if isinstance(data, dict) and data.get("error"):
             return jsonify({
                 "status": "error",
@@ -94,7 +100,7 @@ def run_script():
                 "response_preview": data.get("text")[:500]
             }), 500
 
-        # ✅ Validate response structure
+        # Validate response
         if not isinstance(data, list):
             return jsonify({
                 "status": "error",
@@ -103,7 +109,7 @@ def run_script():
                 "preview": str(data)[:500]
             }), 500
 
-        # ✅ Process data
+        # Process data
         rows = []
         for day in data:
             dia = day.get("dia")
@@ -124,11 +130,9 @@ def run_script():
                 "message": "No data retrieved"
             }), 400
 
-        # ✅ Format date safely
         if "dia" in df.columns:
             df["dia"] = pd.to_datetime(df["dia"]).dt.strftime("%d/%m/%Y")
 
-        # ✅ Optional CSV output
         df.to_csv("Numeros_favorecidos.csv", index=False)
 
         return jsonify({
