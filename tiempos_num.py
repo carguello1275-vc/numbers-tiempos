@@ -20,17 +20,6 @@ def run_script():
         today = date.today().strftime("%Y-%m-%d")
         url = f"https://integration.jps.go.cr/api/App/nuevostiempos/historical?fechaInicio=2026-01-01&fechaFin={today}"
 
-        # ✅ Ensure token exists
-        token = os.environ.get("API_TOKEN")
-        if not token:
-            return jsonify({
-                "status": "error",
-                "message": "Missing API_TOKEN"
-            }), 500
-
-        # ✅ Safely encode token for JS
-        safe_token = json.dumps(token)
-
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
@@ -65,7 +54,7 @@ def run_script():
                     const res = await fetch("{url}", {{
                         method: "GET",
                         headers: {{
-                            "Authorization": {safe_token},
+                            "Authorization": "sec_num",
                             "Accept": "application/json, text/plain, */*"
                         }}
                     }});
