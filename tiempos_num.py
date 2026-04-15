@@ -39,7 +39,20 @@ def run_script():
             page = context.new_page()
 
             # ✅ Prevent hanging
-            page.set_default_timeout(60000)
+            page.goto("https://integration.jps.go.cr", timeout=60000)
+
+            # Wait until Cloudflare verification page is gone
+            page.wait_for_function("""
+                () => !document.title.includes("Verificación")
+            """, timeout=30000)
+
+            # 👇 ADD MOUSE MOVEMENT HERE (this is the correct spot)
+            page.mouse.move(100, 100)
+            page.mouse.move(300, 300)
+            page.wait_for_timeout(1000)
+
+            # Small extra delay to stabilize session
+            page.wait_for_timeout(3000)
 
             # ✅ Step 1: Load main site (Cloudflare/session setup)
             page.goto("https://integration.jps.go.cr", timeout=60000)
