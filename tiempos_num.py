@@ -1,6 +1,5 @@
 from flask import Flask, jsonify
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
 import pandas as pd
 from datetime import date
 import os
@@ -14,14 +13,14 @@ def home():
     return "API is running"
 
 
-# 🔥 MAIN JOB (uses Playwright + proxy)
+# 🔥 MAIN SCRAPER (uses Playwright + proxy)
 @app.route("/run", methods=["GET"])
 def run_script():
     try:
         today = date.today().strftime("%Y-%m-%d")
         url = f"https://integration.jps.go.cr/api/App/nuevostiempos/historical?fechaInicio=2026-01-01&fechaFin={today}"
 
-        # ✅ Proxy config from environment
+        # ✅ Proxy config
         proxy_server = os.environ.get("PROXY_SERVER")
         proxy_username = os.environ.get("PROXY_USERNAME")
         proxy_password = os.environ.get("PROXY_PASSWORD")
@@ -57,14 +56,20 @@ def run_script():
 
             page = context.new_page()
 
-            # ✅ Apply stealth
-            stealth_sync(page)
+            # ✅ Basic stealth (no external library)
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            """)
+            page.add_init_script("""
+                window.chrome = { runtime: {} };
+            """)
 
             page.set_default_timeout(15000)
 
-            # Step 1: Load site (pass Cloudflare)
+            # Step 1: Load main page (Cloudflare session)
             page.goto("https://integration.jps.go.cr", timeout=30000)
 
+            # Wait for challenge to pass (if possible)
             try:
                 page.wait_for_function(
                     "() => !document.title.includes('Verificación')",
@@ -78,14 +83,14 @@ def run_script():
             page.mouse.move(500, 400)
             page.wait_for_timeout(1500)
 
-            # Fail fast if blocked
+            # Fail fast if still blocked
             if "Verificación" in page.title():
                 return jsonify({
                     "status": "error",
-                    "message": "Blocked by Cloudflare (proxy likely low quality)"
+                    "message": "Blocked by Cloudflare (proxy likely issue)"
                 }), 403
 
-            # Step 2: Call API
+            # Step 2: Call API from browser context
             data = page.evaluate(f"""
                 async () => {{
                     const res = await fetch("{url}", {{
@@ -109,6 +114,8 @@ def run_script():
                     }}
                 }}
             """)
+
+            browser.close()
 
         # Handle API errors
         if isinstance(data, dict) and data.get("error"):
@@ -167,7 +174,7 @@ def run_script():
         }), 500
 
 
-# 🔥 FAST ENDPOINT (no Playwright)
+# ⚡ FAST ENDPOINT (no Playwright)
 @app.route("/data", methods=["GET"])
 def get_data():
     try:
