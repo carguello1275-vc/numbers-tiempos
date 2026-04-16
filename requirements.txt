@@ -1,5 +1,4 @@
 flask
 pandas
 playwright
-playwright-stealth
 gunicorn
