@@ -2,8 +2,8 @@ from flask import Flask, jsonify
 from playwright.sync_api import sync_playwright
 import pandas as pd
 from datetime import date
-import os
 import traceback
+import random
 
 app = Flask(__name__)
 
@@ -13,29 +13,25 @@ def home():
     return "API is running"
 
 
-# 🔥 MAIN SCRAPER (uses Playwright + proxy)
 @app.route("/run", methods=["GET"])
 def run_script():
     try:
         today = date.today().strftime("%Y-%m-%d")
-        url = f"https://integration.jps.go.cr/api/App/nuevostiempos/historical?fechaInicio=2026-01-01&fechaFin={today}"
 
-        # ✅ Proxy config
-        proxy_server = os.environ.get("PROXY_SERVER")
-        proxy_username = os.environ.get("PROXY_USERNAME")
-        proxy_password = os.environ.get("PROXY_PASSWORD")
+        api_url = f"https://integration.jps.go.cr/api/App/nuevostiempos/historical?fechaInicio=2026-01-01&fechaFin={today}"
 
-        if not proxy_server:
-            return jsonify({
-                "status": "error",
-                "message": "Proxy not configured"
-            }), 500
+        # 🔥 Sticky session (IMPORTANT)
+        session_id = f"session-{random.randint(100000,999999)}"
+
+        proxy_username = f"spi5uiwom8-country-CR-{session_id}"
+        proxy_password = "CxWrg7Eayo+93J0nnd"
 
         with sync_playwright() as p:
+
             browser = p.chromium.launch(
                 headless=True,
                 proxy={
-                    "server": proxy_server,
+                    "server": "http://gate.decodo.com:10001",
                     "username": proxy_username,
                     "password": proxy_password
                 },
@@ -49,51 +45,37 @@ def run_script():
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                locale="en-US",
-                timezone_id="America/Costa_Rica",
-                viewport={"width": 1920, "height": 1080}
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US"
             )
 
             page = context.new_page()
+            page.set_default_timeout(45000)
 
-            # ✅ Basic stealth (no external library)
-            page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            """)
-            page.add_init_script("""
-                window.chrome = { runtime: {} };
-            """)
+            # 🔥 Warm-up (helps proxy reliability)
+            page.goto("https://www.google.com", timeout=30000)
 
-            page.set_default_timeout(15000)
+            # 🔥 Main navigation (faster strategy)
+            page.goto(
+                "https://integration.jps.go.cr",
+                timeout=60000,
+                wait_until="domcontentloaded"
+            )
 
-            # Step 1: Load main page (Cloudflare session)
-            page.goto("https://integration.jps.go.cr", timeout=30000)
+            # Small delay to stabilize
+            page.wait_for_timeout(3000)
 
-            # Wait for challenge to pass (if possible)
-            try:
-                page.wait_for_function(
-                    "() => !document.title.includes('Verificación')",
-                    timeout=10000
-                )
-            except:
-                pass
-
-            # Minimal human behavior
-            page.mouse.move(100, 100)
-            page.mouse.move(500, 400)
-            page.wait_for_timeout(1500)
-
-            # Fail fast if still blocked
+            # 🔥 Detect Cloudflare block early
             if "Verificación" in page.title():
                 return jsonify({
                     "status": "error",
-                    "message": "Blocked by Cloudflare (proxy likely issue)"
+                    "message": "Blocked by Cloudflare (challenge page)"
                 }), 403
 
-            # Step 2: Call API from browser context
+            # 🔥 Call API INSIDE browser (key step)
             data = page.evaluate(f"""
                 async () => {{
-                    const res = await fetch("{url}", {{
+                    const res = await fetch("{api_url}", {{
                         method: "GET",
                         headers: {{
                             "Authorization": "sec_num",
@@ -117,7 +99,7 @@ def run_script():
 
             browser.close()
 
-        # Handle API errors
+        # 🔴 Handle API / Cloudflare errors
         if isinstance(data, dict) and data.get("error"):
             return jsonify({
                 "status": "error",
@@ -132,7 +114,7 @@ def run_script():
                 "preview": str(data)[:500]
             }), 500
 
-        # 🔥 Transform data (your original logic)
+        # ✅ Process data
         rows = []
 
         for day in data:
@@ -140,7 +122,6 @@ def run_script():
 
             for periodo in ["manana", "mediaTarde", "tarde"]:
                 draw = day.get(periodo)
-
                 if draw:
                     rows.append({
                         "dia": dia,
@@ -157,7 +138,6 @@ def run_script():
 
         df["dia"] = pd.to_datetime(df["dia"]).dt.strftime("%d/%m/%Y")
 
-        # ✅ Save CSV (cache)
         df.to_csv("Numeros_favorecidos.csv", index=False)
 
         return jsonify({
@@ -171,31 +151,6 @@ def run_script():
             "status": "error",
             "message": str(e),
             "trace": traceback.format_exc()
-        }), 500
-
-
-# ⚡ FAST ENDPOINT (no Playwright)
-@app.route("/data", methods=["GET"])
-def get_data():
-    try:
-        if not os.path.exists("Numeros_favorecidos.csv"):
-            return jsonify({
-                "status": "error",
-                "message": "No cached data available"
-            }), 500
-
-        df = pd.read_csv("Numeros_favorecidos.csv")
-
-        return jsonify({
-            "status": "success",
-            "rows": len(df),
-            "data": df.to_dict(orient="records")
-        })
-
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
         }), 500
 
 
