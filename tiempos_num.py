@@ -1,10 +1,10 @@
 from flask import Flask, jsonify
 from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 import pandas as pd
 from datetime import date
 import os
 import traceback
-import json
 
 app = Flask(__name__)
 
@@ -14,15 +14,32 @@ def home():
     return "API is running"
 
 
+# 🔥 MAIN JOB (uses Playwright + proxy)
 @app.route("/run", methods=["GET"])
 def run_script():
     try:
         today = date.today().strftime("%Y-%m-%d")
         url = f"https://integration.jps.go.cr/api/App/nuevostiempos/historical?fechaInicio=2026-01-01&fechaFin={today}"
 
+        # ✅ Proxy config from environment
+        proxy_server = os.environ.get("PROXY_SERVER")
+        proxy_username = os.environ.get("PROXY_USERNAME")
+        proxy_password = os.environ.get("PROXY_PASSWORD")
+
+        if not proxy_server:
+            return jsonify({
+                "status": "error",
+                "message": "Proxy not configured"
+            }), 500
+
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
+                proxy={
+                    "server": proxy_server,
+                    "username": proxy_username,
+                    "password": proxy_password
+                },
                 args=[
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
@@ -34,40 +51,41 @@ def run_script():
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 locale="en-US",
+                timezone_id="America/Costa_Rica",
                 viewport={"width": 1920, "height": 1080}
             )
 
             page = context.new_page()
 
-            # ⬇️ IMPORTANT: reduce total timeout
+            # ✅ Apply stealth
+            stealth_sync(page)
+
             page.set_default_timeout(15000)
 
-            # Step 1: Load site
+            # Step 1: Load site (pass Cloudflare)
             page.goto("https://integration.jps.go.cr", timeout=30000)
 
-            # ⬇️ Wait briefly (NOT long)
             try:
                 page.wait_for_function(
                     "() => !document.title.includes('Verificación')",
-                    timeout=8000
+                    timeout=10000
                 )
             except:
-                pass  # don't block execution
+                pass
 
-            # ⬇️ Simulate minimal human behavior
+            # Minimal human behavior
             page.mouse.move(100, 100)
-            page.mouse.move(400, 300)
-            page.wait_for_timeout(1000)
+            page.mouse.move(500, 400)
+            page.wait_for_timeout(1500)
 
-            # ⬇️ Early exit if still blocked
-            title = page.title()
-            if "Verificación" in title:
+            # Fail fast if blocked
+            if "Verificación" in page.title():
                 return jsonify({
                     "status": "error",
-                    "message": "Blocked by Cloudflare (challenge not passed fast enough)"
+                    "message": "Blocked by Cloudflare (proxy likely low quality)"
                 }), 403
 
-            # Step 2: Call API safely
+            # Step 2: Call API
             data = page.evaluate(f"""
                 async () => {{
                     const res = await fetch("{url}", {{
@@ -92,7 +110,7 @@ def run_script():
                 }}
             """)
 
-        # Handle Cloudflare/API errors
+        # Handle API errors
         if isinstance(data, dict) and data.get("error"):
             return jsonify({
                 "status": "error",
@@ -100,22 +118,22 @@ def run_script():
                 "response_preview": data.get("text")[:500]
             }), 500
 
-        # Validate response
         if not isinstance(data, list):
             return jsonify({
                 "status": "error",
                 "message": "Unexpected response format",
-                "type": str(type(data)),
                 "preview": str(data)[:500]
             }), 500
 
-        # Process data
+        # 🔥 Transform data (your original logic)
         rows = []
+
         for day in data:
             dia = day.get("dia")
 
             for periodo in ["manana", "mediaTarde", "tarde"]:
                 draw = day.get(periodo)
+
                 if draw:
                     rows.append({
                         "dia": dia,
@@ -130,9 +148,9 @@ def run_script():
                 "message": "No data retrieved"
             }), 400
 
-        if "dia" in df.columns:
-            df["dia"] = pd.to_datetime(df["dia"]).dt.strftime("%d/%m/%Y")
+        df["dia"] = pd.to_datetime(df["dia"]).dt.strftime("%d/%m/%Y")
 
+        # ✅ Save CSV (cache)
         df.to_csv("Numeros_favorecidos.csv", index=False)
 
         return jsonify({
@@ -146,6 +164,31 @@ def run_script():
             "status": "error",
             "message": str(e),
             "trace": traceback.format_exc()
+        }), 500
+
+
+# 🔥 FAST ENDPOINT (no Playwright)
+@app.route("/data", methods=["GET"])
+def get_data():
+    try:
+        if not os.path.exists("Numeros_favorecidos.csv"):
+            return jsonify({
+                "status": "error",
+                "message": "No cached data available"
+            }), 500
+
+        df = pd.read_csv("Numeros_favorecidos.csv")
+
+        return jsonify({
+            "status": "success",
+            "rows": len(df),
+            "data": df.to_dict(orient="records")
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
         }), 500
 
 
