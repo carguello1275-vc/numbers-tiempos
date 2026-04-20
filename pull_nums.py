@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 df_existing = pd.read_csv("Numeros_favorecidos.csv")
 save_folder = "D:/777/numbers-tiempos/"
+file_path = f"{save_folder}Numeros_favorecidos.csv"
 
 scraper = cloudscraper.create_scraper()
 url = "https://integration.jps.go.cr/api/App/nuevostiempos/historical"
@@ -45,14 +46,29 @@ for day in data:
                 "numero": draw.get("numero"),
             })
 
-df = pd.DataFrame(rows)
+df_new = pd.DataFrame(rows)
 
-df["dia"] = pd.to_datetime(df["dia"]).dt.strftime("%d/%m/%Y")
+df_new["dia"] = pd.to_datetime(df_new["dia"]).dt.strftime("%d/%m/%Y")
 
+df_new = df_new.merge(
+    df_existing,
+    on=["dia", "numero"],
+    how="left",
+    indicator=True
+)
 
+df_new = df_new[df_new["_merge"] == "left_only"].drop(columns=["_merge"])
 
-df.to_csv(f"{save_folder}Numeros_favorecidos.csv", index=False)
+if df_new.empty:
+    print("No new unique rows to add")
+    exit()
 
+# Combine
+df_final = pd.concat([df_existing, df_new], ignore_index=True)
+
+df_final.to_csv(f"{save_folder}Numeros_favorecidos.csv", index=False)
+
+print(f"Added {len(df_new)} new rows")
 
 try:
     subprocess.run(["git", "add", "."], check=True)
@@ -61,5 +77,3 @@ try:
     print("Pushed to GitHub successfully")
 except subprocess.CalledProcessError as e:
     print("Git command failed:", e)
-
-    
